@@ -35,21 +35,27 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logging.info("Сообщение успешно отправлено!")
-    except Exception as error:
+    except telegram.TelegramError as error:
         logging.error(f"Отправка сообщения не удалась, {error}")
 
 
 def get_api_answer(current_timestamp):
     """Запрос данный у API."""
-    timestamp = current_timestamp or int(time.time())
-    params = {'from_date': timestamp}
+    params = {'from_date': current_timestamp}
     try:
         response = requests.get(
             ENDPOINT, headers=HEADERS, params=params)
     except ConnectionError as error:
         logging.error(f"Ошибка при запросе к API {error}")
     if response.status_code == HTTPStatus.OK:
-        return response.json()
+        try:
+            data = response.json()
+        except ValueError as error:
+            logging.error(
+                f"Исключение при переводе ответа api в Json, {error}")
+            raise ValueError(
+                f"Исключение при переводе ответа api в Json, {error}")
+        return data
     else:
         logging.error(
             f"Не корректный статус ответа от сервера {response.status_code}")
@@ -80,6 +86,14 @@ def check_response(response):
 def parse_status(homework):
     """Получение статуса о выполнении работы."""
     if isinstance(homework, dict):
+        if 'homework_name' not in homework.keys():
+            logging.error(
+                'В обьекте выполненного задания нет ключа homework_name')
+            raise KeyError(
+                'В обьекте выполненного задания нет ключа homework_name')
+        if 'status' not in homework.keys():
+            logging.error('В обьекте выполненного задания нет ключа status')
+            raise KeyError('В обьекте выполненного задания нет ключа status')
         homework_name = homework.get('homework_name')
         homework_status = homework.get('status')
         if homework_status not in HOMEWORK_STATUSES.keys():
@@ -96,8 +110,20 @@ def parse_status(homework):
 
 def check_tokens():
     """Проверка на наличие токенов."""
-    if None in [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]:
-        logging.critical('Токен(ы) не переданы!')
+    tokens = {
+        'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
+        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
+        'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID
+    }
+
+    def return_falsy(item: tuple):
+        if not bool(item[1]):
+            return item
+
+    if not all(tokens.values()):
+        falsy_values = list(filter(return_falsy, tokens.items()))
+        logging.critical(
+            f'Токен(ы) не переданы! Отсутствуют: {falsy_values}')
         return False
     else:
         return True
@@ -105,23 +131,22 @@ def check_tokens():
 
 def main():
     """Основная логика работы бота."""
+    check_tokens()
+    TEN_SEC = 10000
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
+    current_timestamp = int(time.time() - TEN_SEC)
 
-    token_status = check_tokens()
-
-    while token_status:
+    while True:
         try:
             response = get_api_answer(current_timestamp)
-            homework: list = check_response(response)
-            status: str = parse_status(homework)
-            if status:
+            homeworks: list = check_response(response)
+            for homework in homeworks:
+                status: str = parse_status(homework)
                 send_message(bot, status)
-            current_timestamp = response.get('current_date')
-            time.sleep(RETRY_TIME)
+                current_timestamp = response.get(
+                    'current_date') or current_timestamp
         except Exception as error:
-            message = f'Сбой в работе программы: {error}'
-            logging.error(message)
+            raise RuntimeError(f'Сбой в работе программы: {error}')
         finally:
             time.sleep(RETRY_TIME)
 
