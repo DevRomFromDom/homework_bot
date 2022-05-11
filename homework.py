@@ -47,6 +47,7 @@ def get_api_answer(current_timestamp):
             ENDPOINT, headers=HEADERS, params=params)
     except ConnectionError as error:
         logging.error(f"Ошибка при запросе к API {error}")
+        raise ConnectionError(f"Ошибка при запросе к API {error}")
     if response.status_code == HTTPStatus.OK:
         try:
             data = response.json()
@@ -105,25 +106,13 @@ def parse_status(homework):
         verdict = HOMEWORK_STATUSES[homework_status]
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
     else:
-        logging.debug("Статус работы не изменился.")
+        logging.error("Тип работы полученной с сервера, не корректный!")
+        raise TypeError("Тип работы полученной с сервера, не корректный!")
 
 
 def check_tokens():
     """Проверка на наличие токенов."""
-    tokens = {
-        'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
-        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
-        'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID
-    }
-
-    def return_falsy(item: tuple):
-        if not bool(item[1]):
-            return item
-
-    if not all(tokens.values()):
-        falsy_values = list(filter(return_falsy, tokens.items()))
-        logging.critical(
-            f'Токен(ы) не переданы! Отсутствуют: {falsy_values}')
+    if not all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]):
         return False
     else:
         return True
@@ -131,7 +120,22 @@ def check_tokens():
 
 def main():
     """Основная логика работы бота."""
-    check_tokens()
+    tokens = {
+        'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
+        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
+        'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID
+    }
+
+    if not check_tokens():
+        falsy_values = []
+        for key, value in tokens.items():
+            if not bool(value):
+                falsy_values.append(key)
+
+        logging.critical(f'Токен(ы) не переданы! Отсутствуют: {falsy_values}')
+        raise RuntimeError(
+            f'Токен(ы) не переданы! Отсутствуют: {falsy_values}')
+
     TEN_SEC = 10000
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time() - TEN_SEC)
@@ -143,10 +147,15 @@ def main():
             for homework in homeworks:
                 status: str = parse_status(homework)
                 send_message(bot, status)
-                current_timestamp = response.get(
-                    'current_date') or current_timestamp
+
+            current_timestamp = response.get(
+                'current_date', current_timestamp)
         except Exception as error:
-            raise RuntimeError(f'Сбой в работе программы: {error}')
+            logging.error(f'Сбой в работе программы: {error}')
+            message = None
+            if not message:
+                message = send_message(
+                    bot, f'Сбой в работе программы: {error}')
         finally:
             time.sleep(RETRY_TIME)
 
