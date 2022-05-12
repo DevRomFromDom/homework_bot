@@ -150,11 +150,13 @@ def main():
 
             current_timestamp = response.get(
                 'current_date', current_timestamp)
+
+            previous_err = None
         except Exception as error:
             logging.error(f'Сбой в работе программы: {error}')
-            message = None
-            if not message:
-                message = send_message(
+            if previous_err != error:
+                previous_err = error
+                send_message(
                     bot, f'Сбой в работе программы: {error}')
         finally:
             time.sleep(RETRY_TIME)
