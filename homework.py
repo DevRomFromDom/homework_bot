@@ -139,6 +139,7 @@ def main():
     TEN_SEC = 10000
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time() - TEN_SEC)
+    previous_err = None
 
     while True:
         try:
